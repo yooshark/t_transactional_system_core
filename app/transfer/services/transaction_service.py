@@ -20,7 +20,7 @@ class TransactionService:
     @staticmethod
     def _validate_balance(from_wallet: Wallet, total_debit: Decimal) -> None:
         if from_wallet.balance < total_debit:
-            raise TransactionError("Insufficient funds")
+            raise TransactionError("Not enough balance")
 
     @staticmethod
     def _quantize(value: Decimal) -> Decimal:
