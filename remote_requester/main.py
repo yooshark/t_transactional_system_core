@@ -7,7 +7,7 @@ async def do_request(client: httpx.AsyncClient, i: int):
     try:
         r = await client.post(
             "http://127.0.0.1:8000/api/transfer/",
-            json={"from_wallet_id": 2, "to_wallet_id": 3, "amount": "2000.00"},
+            json={"from_wallet_id": 2, "to_wallet_id": 3, "amount": "3000.00"},
         )
         r.raise_for_status()
         return i, r.status_code, r.json()
