@@ -2,7 +2,7 @@ import os
 
 from celery import Celery
 
-from env import env
+from django_extended.env import env
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "app.settings")
 
