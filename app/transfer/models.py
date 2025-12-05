@@ -20,10 +20,10 @@ class Wallet(BaseModel):
 
 class Transaction(BaseModel):
     to_wallet = models.ForeignKey(
-        Wallet, related_name="incoming", on_delete=models.PROTECT
+        Wallet, related_name="incoming", on_delete=models.SET_NULL, null=True
     )
     from_wallet = models.ForeignKey(
-        Wallet, related_name="outgoing", on_delete=models.PROTECT
+        Wallet, related_name="outgoing", on_delete=models.SET_NULL, null=True
     )
     amount = models.DecimalField(max_digits=18, decimal_places=2)
     commission = models.DecimalField(max_digits=18, decimal_places=2, default=0)
