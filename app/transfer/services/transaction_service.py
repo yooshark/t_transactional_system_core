@@ -1,7 +1,7 @@
-import time
 from decimal import Decimal, ROUND_DOWN
 
 from django.db import transaction
+from django.db.models import Q
 
 from transfer.dto import TransferDto
 from transfer.models import Wallet, Transaction
@@ -15,66 +15,80 @@ class TransactionService:
 
     def __init__(self, dto: TransferDto) -> None:
         self.dto = dto
+        self.init_amount: Decimal = dto.amount
 
-    @transaction.atomic
+    @staticmethod
+    def _validate_balance(from_wallet: Wallet, total_debit: Decimal) -> None:
+        if from_wallet.balance < total_debit:
+            raise TransactionError("Insufficient funds")
+
+    @staticmethod
+    def _quantize(value: Decimal) -> Decimal:
+        return value.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+    @staticmethod
+    def send_notification(self, tr_id: int, target_wallet: int) -> None:
+        send_notification_task.delay(str(tr_id), target_wallet)
+
     def transfer(self) -> Transaction:
-        from_wallet, to_wallet, tech_wallet = self._load_wallets()
-
-        self._validate_balance(from_wallet)
-
         commission = self._calculate_commission()
-        total_debit = self._calculate_total_debit(commission)
-        time.sleep(0.5)
-        self._apply_balance_updates(
-            from_wallet, to_wallet, tech_wallet, total_debit, commission
-        )
+        total_debit = self._quantize(self.init_amount + commission)
+        return self.handle_wallet_transactions(commission, total_debit)
 
-        return self._create_transaction(from_wallet, to_wallet, commission, total_debit)
-
-    def _get_wallets_without_atomic(self):
-        return Wallet.objects.filter(
-            id__in=[self.dto.from_wallet_id, self.dto.to_wallet_id]
-        ) | Wallet.objects.filter(owner=self.TECH_WALLET_OWNER)
-
-    def _get_wallets(self):
-        return Wallet.objects.select_for_update().filter(
-            id__in=[self.dto.from_wallet_id, self.dto.to_wallet_id]
-        ) | Wallet.objects.select_for_update().filter(owner=self.TECH_WALLET_OWNER)
+    def handle_wallet_transactions(
+        self, commission: Decimal, total_debit: Decimal
+    ) -> Transaction:
+        with transaction.atomic():
+            from_wallet, to_wallet, tech_wallet = self._load_wallets()
+            self._validate_balance(from_wallet, total_debit)
+            self._apply_balance_updates(
+                from_wallet, to_wallet, tech_wallet, total_debit, commission
+            )
+            return self._create_transaction(
+                from_wallet, to_wallet, commission, total_debit
+            )
 
     def _load_wallets(self) -> tuple[Wallet, ...]:
-        wallets = self._get_wallets()
-        # wallets = self._get_wallets_without_atomic()
-        wallet_map = {w.id: w for w in wallets}
+        wallets = list(
+            Wallet.objects.select_for_update().filter(
+                Q(id__in=[self.dto.from_wallet_id, self.dto.to_wallet_id])
+                | Q(owner=self.TECH_WALLET_OWNER)
+            )
+        )
+
+        if len(wallets) < 3:
+            raise TransactionError("Required wallets not found")
+
+        from_wallet = next(
+            (w for w in wallets if w.id == self.dto.from_wallet_id), None
+        )
+        to_wallet = next((w for w in wallets if w.id == self.dto.to_wallet_id), None)
         tech_wallet = next(
             (w for w in wallets if w.owner == self.TECH_WALLET_OWNER), None
         )
 
-        if self.dto.from_wallet_id not in wallet_map:
+        if from_wallet is None:
             raise TransactionError("From-wallet not found")
-        if self.dto.to_wallet_id not in wallet_map:
+        if to_wallet is None:
             raise TransactionError("To-wallet not found")
         if tech_wallet is None:
             raise TransactionError("Tech-wallet not found")
 
         return (
-            wallet_map[self.dto.from_wallet_id],
-            wallet_map[self.dto.to_wallet_id],
+            from_wallet,
+            to_wallet,
             tech_wallet,
         )
 
-    def _validate_balance(self, from_wallet: Wallet) -> None:
-        print("FROM WALLET BALANCE:", from_wallet.balance, "minus", self.dto.amount)
-        if from_wallet.balance < self.dto.amount:
-            raise TransactionError("Insufficient funds")
-
     def _calculate_commission(self) -> Decimal:
-        amount: Decimal = self.dto.amount
-        if amount > Decimal("1000.00"):
-            return (amount * Decimal("0.10")).quantize(Decimal("0.01"))
-        return Decimal("0.00")
+        return (
+            (self.init_amount * Decimal("0.10")).quantize(Decimal("0.01"))
+            if self.init_amount > Decimal("1000.00")
+            else Decimal("0.00")
+        )
 
     def _calculate_total_debit(self, commission: Decimal) -> Decimal:
-        return (self.dto.amount + commission).quantize(
+        return (self.init_amount + commission).quantize(
             Decimal("0.01"), rounding=ROUND_DOWN
         )
 
@@ -87,13 +101,13 @@ class TransactionService:
         commission: Decimal,
     ) -> None:
         from_wallet.balance -= total_debit
-        to_wallet.balance += self.dto.amount
+        to_wallet.balance += self.init_amount
         tech_wallet.balance += commission
-        time.sleep(0.5)
 
-        from_wallet.save(update_fields=["balance"])
-        to_wallet.save(update_fields=["balance"])
-        tech_wallet.save(update_fields=["balance"])
+        Wallet.objects.bulk_update(
+            [from_wallet, to_wallet, tech_wallet],
+            ["balance"],
+        )
 
     def _create_transaction(
         self,
@@ -105,11 +119,8 @@ class TransactionService:
         return Transaction.objects.create(
             from_wallet=from_wallet,
             to_wallet=to_wallet,
-            amount=self.dto.amount,
+            amount=self.init_amount,
             commission=commission,
             total_debit=total_debit,
             status=TransactionStatusType.SUCCESS,
         )
-
-    def send_notification(self, tr_id: int, target_wallet: int) -> None:
-        send_notification_task.delay(str(tr_id), target_wallet)

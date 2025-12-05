@@ -1,4 +1,7 @@
+from decimal import Decimal
+
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from django_extended.models import BaseModel
@@ -16,6 +19,15 @@ class Wallet(BaseModel):
 
     def __str__(self):
         return f"Wallet({self.id}, owner={self.owner}, balance={self.balance})"
+
+    def clean(self):
+        if self.balance < Decimal("0.0") and self.balance != Decimal("0.0"):
+            raise ValidationError({"balance": "The balance must be positive"})
+        return super().clean()
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class Transaction(BaseModel):
