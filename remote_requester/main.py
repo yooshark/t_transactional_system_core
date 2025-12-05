@@ -2,8 +2,6 @@ import asyncio
 
 import httpx
 
-NUM_REQUESTS = 10
-
 
 async def do_request(client: httpx.AsyncClient, i: int):
     try:
@@ -19,9 +17,9 @@ async def do_request(client: httpx.AsyncClient, i: int):
         return i, None, str(e)
 
 
-async def main():
+async def main(num_requests: int = 10):
     async with httpx.AsyncClient(timeout=10.0) as client:
-        tasks = [do_request(client, i) for i in range(1, NUM_REQUESTS + 1)]
+        tasks = [do_request(client, i) for i in range(1, num_requests + 1)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for i, status, result in results:
@@ -29,4 +27,6 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    NUM_REQUESTS = 10
+
+    asyncio.run(main(NUM_REQUESTS))

@@ -27,7 +27,7 @@ class TransactionService:
         return value.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
 
     @staticmethod
-    def send_notification(self, tr_id: int, target_wallet: int) -> None:
+    def send_notification(tr_id: int, target_wallet: int) -> None:
         send_notification_task.delay(str(tr_id), target_wallet)
 
     def transfer(self) -> Transaction:
