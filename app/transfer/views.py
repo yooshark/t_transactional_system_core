@@ -21,4 +21,4 @@ class TransferAPIView(generics.CreateAPIView):
             tr_s.send_notification(tr.id, dto.to_wallet_id)
         except TransactionError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({"success": True})
+        return Response({"success": True}, status=status.HTTP_201_CREATED)

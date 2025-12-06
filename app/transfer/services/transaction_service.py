@@ -11,11 +11,12 @@ from transfer.tasks import send_notification_task
 
 
 class TransactionService:
-    TECH_WALLET_OWNER = "tech_admin"
+    DEFAULT_TECH_WALLET_OWNER = "tech_admin"
 
-    def __init__(self, dto: TransferDto) -> None:
+    def __init__(self, dto: TransferDto, tech_wallet_owner: str | None = None) -> None:
         self.dto = dto
         self.init_amount: Decimal = dto.amount
+        self.tech_wallet_owner = tech_wallet_owner or self.DEFAULT_TECH_WALLET_OWNER
 
     @staticmethod
     def _validate_balance(from_wallet: Wallet, total_debit: Decimal) -> None:
@@ -35,37 +36,26 @@ class TransactionService:
         total_debit = self._quantize(self.init_amount + commission)
         return self.handle_wallet_transactions(commission, total_debit)
 
-    def handle_wallet_transactions(
-        self, commission: Decimal, total_debit: Decimal
-    ) -> Transaction:
+    def handle_wallet_transactions(self, commission: Decimal, total_debit: Decimal) -> Transaction:
         with transaction.atomic():
             from_wallet, to_wallet, tech_wallet = self._load_wallets()
             self._validate_balance(from_wallet, total_debit)
-            self._apply_balance_updates(
-                from_wallet, to_wallet, tech_wallet, total_debit, commission
-            )
-            return self._create_transaction(
-                from_wallet, to_wallet, commission, total_debit
-            )
+            self._apply_balance_updates(from_wallet, to_wallet, tech_wallet, total_debit, commission)
+            return self._create_transaction(from_wallet, to_wallet, commission, total_debit)
 
     def _load_wallets(self) -> tuple[Wallet, ...]:
         wallets = list(
             Wallet.objects.select_for_update().filter(
-                Q(id__in=[self.dto.from_wallet_id, self.dto.to_wallet_id])
-                | Q(owner=self.TECH_WALLET_OWNER)
+                Q(id__in=[self.dto.from_wallet_id, self.dto.to_wallet_id]) | Q(owner=self.tech_wallet_owner)
             )
         )
 
         if len(wallets) < 3:
             raise TransactionError("Required wallets not found")
 
-        from_wallet = next(
-            (w for w in wallets if w.id == self.dto.from_wallet_id), None
-        )
+        from_wallet = next((w for w in wallets if w.id == self.dto.from_wallet_id), None)
         to_wallet = next((w for w in wallets if w.id == self.dto.to_wallet_id), None)
-        tech_wallet = next(
-            (w for w in wallets if w.owner == self.TECH_WALLET_OWNER), None
-        )
+        tech_wallet = next((w for w in wallets if w.owner == self.tech_wallet_owner), None)
 
         if from_wallet is None:
             raise TransactionError("From-wallet not found")
@@ -88,9 +78,7 @@ class TransactionService:
         )
 
     def _calculate_total_debit(self, commission: Decimal) -> Decimal:
-        return (self.init_amount + commission).quantize(
-            Decimal("0.01"), rounding=ROUND_DOWN
-        )
+        return (self.init_amount + commission).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
 
     def _apply_balance_updates(
         self,

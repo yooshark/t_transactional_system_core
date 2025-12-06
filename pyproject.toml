@@ -1,0 +1,15 @@
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "app.settings"
+pythonpath = 'app'
+testpaths = "tests"
+python_files = "tests.py test_*.py *_tests.py"
+
+[tool.ruff]
+line-length = 120
+exclude = [
+    ".git",
+    "*/migrations/*",
+    "*/static/*",
+    ".venv",
+    "__init__.py"
+]
